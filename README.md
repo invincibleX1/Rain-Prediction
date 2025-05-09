@@ -10,11 +10,11 @@ The module will store 24h data locally, taking samples every 5-10 minutes (or le
 
 List of Components
 
-*ESP32 C3 Super Mini
+*ESP32 DevKit V1 (v3.0.0)
 
-*GY-BMP280 sensor
+*BMP280 sensor
 
-*SH1106 1.3in oled display
+*ST7735 1.8" TFT display
 
 
 
