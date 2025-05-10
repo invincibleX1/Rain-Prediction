@@ -1,80 +1,143 @@
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>  // Or ST7789
 #include <Adafruit_BMP280.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
 #include <SPI.h>
+#include <Wire.h>
+#include <esp_sleep.h>
 
-// TFT Pins
-#define TFT_CS   5
-#define TFT_DC   17  // A0 pin on TFT
-#define TFT_RST  16
-#define TFT_BL 14
+// --- TFT & Sensor Pins ---
+#define TFT_CS     5
+#define TFT_DC     17
+#define TFT_RST    16
 
+// --- Wake Button Pin (must be RTC-capable) ---
+#define WAKE_BUTTON_PIN 14
+#define SCREEN_POWER_PIN 4
+
+// --- Pressure History Settings ---
+#define MAX_READINGS 60
+#define DROP_THRESHOLD 2.5  // hPa drop for "Rain is Coming"
+
+// --- Components ---
+Adafruit_BMP280 bmp;
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
-// BMP280
-Adafruit_BMP280 bmp;
-
-// Button
-#define BUTTON_PIN 4
-
-bool displayOn = false;
+// --- RTC-Persistent Data ---
+RTC_DATA_ATTR float pressureHistory[MAX_READINGS];
+RTC_DATA_ATTR int pressureIndex = 0;
+RTC_DATA_ATTR bool bufferFull = false;
+RTC_DATA_ATTR float lastPressure = 0.0;
+RTC_DATA_ATTR float lastTemperature = 0.0;
+RTC_DATA_ATTR bool lastRainComing = false;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  delay(100);
 
-  // TFT setup
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, LOW);
-  tft.initR(INITR_BLACKTAB);  // adjust as needed
-  tft.setRotation(2);
-  tft.fillScreen(ST77XX_BLACK);
-  
-  // Sensor setup
+  // Detect wake reason
+  esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
+  bool screenRequested = (wakeReason == ESP_SLEEP_WAKEUP_EXT0);
+
+  // Init BMP280
   if (!bmp.begin(0x76)) {
     Serial.println("BMP280 not found!");
-    while (1);
+    delay(2000);
+    return;
   }
+
+  pinMode(SCREEN_POWER_PIN, OUTPUT);
   
-}
+  
 
-void loop() {
-  if (digitalRead(BUTTON_PIN) == LOW) {
-    if (!displayOn) {
-      displayOn = true;  // Track display state
+  // If it's a timer wakeup, gather measurements
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+    // Read current pressure and temperature
+    float pressure = bmp.readPressure() / 100.0;  // hPa
+    float temperature = bmp.readTemperature();    // °C
+    Serial.print("MEASURED\n");
+    // Store to circular buffer
+    pressureHistory[pressureIndex] = pressure;
+    pressureIndex = (pressureIndex + 1) % MAX_READINGS;
+    if (pressureIndex == 0) bufferFull = true;
+
+    // Detect pressure drop
+    bool rainComing = false;
+    if (bufferFull) {
+      int pastIndex = (pressureIndex + 1) % MAX_READINGS;
+      float pastPressure = pressureHistory[pastIndex];
+      if ((pastPressure - pressure) >= DROP_THRESHOLD) {
+        rainComing = true;
+      }
     }
- 
-    float temp = bmp.readTemperature();
-    float pressure = bmp.readPressure() / 100.0;
-    digitalWrite(TFT_BL, HIGH);
-    Serial.println("Button Pressed");
 
-    tft.fillScreen(ST77XX_BLACK);
-    tft.setTextSize(1);
+    // Store last values
+    lastPressure = pressure;
+    lastTemperature = temperature;
+    lastRainComing = rainComing;
+/*
+    // Print all stored values in pressureHistory[]
+    Serial.print("Pressure History: [");
+    for (int i = 0; i < MAX_READINGS; i++) {
+      Serial.print(pressureHistory[i], 1);
+      if (i < MAX_READINGS - 1) {
+        Serial.print(", ");
+      }
+    }
+    Serial.println("]");
+*/
+    // Prepare for next wake
+    pinMode(WAKE_BUTTON_PIN, INPUT_PULLDOWN);
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 1);   // wake when HIGH
+    esp_sleep_enable_timer_wakeup(60 * 1000000);                    // 60 seconds
+    esp_deep_sleep_start();
+  }
+
+  // If button wakeup, show on screen
+  if (screenRequested) {
+    initScreen();
+    tft.setCursor(0, 0);
     tft.setTextColor(ST77XX_WHITE);
-    tft.setCursor(10, 10);
-    tft.println("Temperature");
+    tft.setTextSize(1);
 
-    tft.setCursor(10, 30);
-    tft.print(temp, 1);
+    // Display the last measured values
+    tft.print("Temp: ");
+    tft.print(lastTemperature, 1);
     tft.println(" C");
 
-    tft.setCursor(10, 60);
-    tft.println("Pressure");
-
-    tft.setCursor(10, 80);
-    tft.print(pressure, 1);
+    tft.print("Pressure: ");
+    tft.print(lastPressure, 1);
     tft.println(" hPa");
 
-    delay(2000);  // Wait before next reading
-  } else {
-    if (displayOn) {
-      displayOn = false;
-      Serial.println("Button Released - Turning off screen");
-      tft.fillScreen(ST77XX_BLACK);  // Clear screen (simulate off)
-      digitalWrite(TFT_BL, LOW);
-      delay(10);
+    if (lastRainComing) {
+      tft.setTextColor(ST77XX_RED);
+      tft.println();
+      tft.println("Rain is Coming!");
     }
-    delay(200);
+
+    delay(5000);  // Display duration before sleeping
+  }
+
+  // Prepare for next wake
+  pinMode(WAKE_BUTTON_PIN, INPUT_PULLDOWN);
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 1);   // wake when HIGH
+  esp_sleep_enable_timer_wakeup(60 * 1000000);                    // 60 seconds
+  esp_deep_sleep_start();
+}
+
+// Required by Arduino
+void loop() {
+  // Never called due to deep sleep
+}
+
+// TFT screen init
+void initScreen() {
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(1);
+  tft.fillScreen(ST77XX_BLACK);
+  // Power on screen only if ESP woke from button
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+    digitalWrite(SCREEN_POWER_PIN, HIGH); // Power on TFT
+  } else {
+    digitalWrite(SCREEN_POWER_PIN, LOW);  // Optional: don't power screen on reset
   }
 }
