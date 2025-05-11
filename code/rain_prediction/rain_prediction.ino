@@ -59,7 +59,7 @@ void setup() {
     float temperatureB = bmp.readTemperature();    // °C
     float temperatureD = dht11.readTemperature();  // °C
     float humidity = dht11.readHumidity();
-    float temperature = (temperatureB + temperatureD)/2;
+    float temperature = 0.3*temperatureB + 0.7*temperatureD;
     Serial.print("MEASURED\n");
     // Store to circular buffer
     pressureHistory[pressureIndex] = pressure;
