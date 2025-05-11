@@ -5,6 +5,15 @@
 #include <Wire.h>
 #include <esp_sleep.h>
 #include <DHT11.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// Your Wi-Fi credentials
+const char* ssid = "COSMOTE-989810";
+const char* password = "69786762248281985263";
+
+// Google Apps Script URL (replace with your generated URL)
+const char* serverName = "https://script.google.com/macros/s/AKfycbxNYVSU25BF_bJ_z5e9w3pUez8yzGuHNDsbKJWk3hYHlZN72xns52EPhBHVTwfKtHFjGg/exec";
 // --- TFT & Sensor Pins ---
 #define TFT_CS     5
 #define TFT_DC     17
@@ -23,12 +32,9 @@ Adafruit_BMP280 bmp;
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 DHT11 dht11(15);
 // --- RTC-Persistent Data ---
-RTC_DATA_ATTR float pressureHistory[MAX_READINGS];
-RTC_DATA_ATTR int pressureIndex = 0;
-RTC_DATA_ATTR bool bufferFull = false;
+
 RTC_DATA_ATTR float lastPressure = 0.0;
 RTC_DATA_ATTR float lastTemperature = 0.0;
-RTC_DATA_ATTR bool lastRainComing = false;
 RTC_DATA_ATTR float lastTempBMP = 0.0;
 RTC_DATA_ATTR float lastTempDHT = 0.0;
 RTC_DATA_ATTR float lastHumidity = 0.0;
@@ -54,6 +60,14 @@ void setup() {
 
   // If it's a timer wakeup, gather measurements
   if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+      WiFi.begin(ssid, password);
+
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(1000);
+      Serial.println("Connecting to WiFi...");
+    }
+    Serial.println("Connected to WiFi");
+
     // Read current pressure and temperature
     float pressure = bmp.readPressure() / 100.0;  // hPa
     float temperatureB = bmp.readTemperature();    // °C
@@ -61,39 +75,25 @@ void setup() {
     float humidity = dht11.readHumidity();
     float temperature = 0.3*temperatureB + 0.7*temperatureD;
     Serial.print("MEASURED\n");
-    // Store to circular buffer
-    pressureHistory[pressureIndex] = pressure;
-    pressureIndex = (pressureIndex + 1) % MAX_READINGS;
-    if (pressureIndex == 0) bufferFull = true;
 
-    // Detect pressure drop
-    bool rainComing = false;
-    if (bufferFull) {
-      int pastIndex = (pressureIndex + 1) % MAX_READINGS;
-      float pastPressure = pressureHistory[pastIndex];
-      if ((pastPressure - pressure) >= DROP_THRESHOLD) {
-        rainComing = true;
-      }
-    }
-
-    // Store last values
+    // Store last values in the RTC
     lastPressure = pressure;
     lastTemperature = temperature;
-    lastRainComing = rainComing;
     lastTempBMP = temperatureB;
     lastTempDHT = temperatureD;
     lastHumidity = humidity;
 
     // Print all stored values in pressureHistory[]
-    Serial.print("Pressure History: [");
-    for (int i = 0; i < MAX_READINGS; i++) {
-      Serial.print(pressureHistory[i], 1);
-      if (i < MAX_READINGS - 1) {
-        Serial.print(", ");
-      }
-    }
-    Serial.println("]");
+    Serial.print("Data: [");
+    Serial.print(lastPressure);
+    Serial.print(" hPa, ");
+    Serial.print(lastTemperature);
+    Serial.print(" C, ");
+    Serial.print(lastHumidity);
+    Serial.println(" %]");
 
+
+    sendDataToGoogleSheets(lastPressure,lastTemperature, lastHumidity);
     // Prepare for next wake
     pinMode(WAKE_BUTTON_PIN, INPUT_PULLDOWN);
     esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 1);   // wake when HIGH
@@ -109,13 +109,18 @@ void setup() {
     tft.setTextSize(1);
 
     // Display the last measured values
-    tft.print("Temp: ");
-    tft.print(lastTemperature, 1);
-    tft.println(" C");
 
     tft.print("Pressure: ");
     tft.print(lastPressure, 1);
     tft.println(" hPa");
+
+    tft.print("Temp: ");
+    tft.print(lastTemperature, 1);
+    tft.println(" C");
+
+    tft.print("Humidity: ");
+    tft.print(lastHumidity, 1);
+    tft.println(" %");
 
     tft.print("TempDHT: ");
     tft.print(lastTempDHT, 1);
@@ -125,15 +130,7 @@ void setup() {
     tft.print(lastTempBMP, 1);
     tft.println(" C");
 
-    tft.print("Humidity: ");
-    tft.print(lastHumidity, 1);
-    tft.println(" %");
 
-    if (lastRainComing) {
-      tft.setTextColor(ST77XX_RED);
-      tft.println();
-      tft.println("Rain is Coming!");
-    }
 
     delay(5000);  // Display duration before sleeping
   }
@@ -149,6 +146,40 @@ void setup() {
 void loop() {
   // Never called due to deep sleep
 }
+
+//Send data to Google Sheets
+void sendDataToGoogleSheets(float pressure, float temp, float hum) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverName);  // Specify your Google Apps Script URL
+    http.addHeader("Content-Type", "application/json");
+
+    // Create JSON payload with pressure, temperature, and humidity
+    String payload = "{";
+    payload += "\"pressure\": " + String(pressure) + ", ";
+    payload += "\"temperature\": " + String(temp) + ", ";
+    payload += "\"humidity\": " + String(hum);
+    payload += "}";
+
+    // Debug output
+    Serial.print("Payload: ");
+    Serial.println(payload);
+
+    // Send the POST request
+    int httpResponseCode = http.POST(payload);
+
+    if (httpResponseCode > 0) {
+      Serial.print("Data sent successfully! Response code: ");
+      Serial.println(httpResponseCode);
+    } else {
+      Serial.print("Error sending data. HTTP response code: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  }
+}
+
 
 // TFT screen init
 void initScreen() {
