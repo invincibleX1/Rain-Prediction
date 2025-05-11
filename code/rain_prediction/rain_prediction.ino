@@ -13,7 +13,7 @@ const char* ssid = "COSMOTE-989810";
 const char* password = "69786762248281985263";
 
 // Google Apps Script URL (replace with your generated URL)
-const char* serverName = "https://script.google.com/macros/s/AKfycbxFgFlbsoDGjWtsuTjZ-KZ6Kn7JE6f9A1sWPercbsoxKy00NK-tVW3H5bEK9b-_sVbf/exec";
+const char* serverName = "https://script.google.com/macros/s/AKfycbybCCg4eVdEeiegs4Sg1la2WAdmTb50N8G0uoCnZTd-uJ8NXg2N6w_aiB9-uGrwCIqX/exec";
 // --- TFT & Sensor Pins ---
 #define TFT_CS     5
 #define TFT_DC     17

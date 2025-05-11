@@ -15,20 +15,70 @@ javascript
 Copy
 Edit
 function doPost(e) {
-  try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ESP Data");
-    var data = JSON.parse(e.postData.contents);
-    
-    // Log incoming data (optional)
-    Logger.log("Received: " + JSON.stringify(data));
+  // Parse the incoming data
+  var data = JSON.parse(e.postData.contents);
+  
+  // Get the current timestamp
+  var timestamp = new Date();
+  
+  // Open the Google Sheet and get the data sheet
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ESP Data");
+  
+  // Append new data to the sheet
+  sheet.appendRow([timestamp, data.pressure, data.temperature, data.humidity]);
+  
+  // Trigger the pressure drop check function
+  checkPressureDrop();
+  
+  // Respond to the HTTP request
+  return ContentService.createTextOutput("Success");
+}
 
-    sheet.appendRow([new Date(), data.pressure, data.temperature, data.humidity]);
-    return ContentService.createTextOutput("Success");
-  } catch (err) {
-    Logger.log("Error: " + err);
-    return ContentService.createTextOutput("Error");
+function checkPressureDrop() {
+  // Get the sheet where pressure readings are stored
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ESP Data");
+  
+  // Get all the data (including timestamps) from the sheet
+  var data = sheet.getDataRange().getValues();
+  
+  // Check if there are enough readings (at least 3 hours worth)
+  if (data.length < 4) {
+    Logger.log("Not enough data to calculate the pressure drop.");
+    return;
+  }
+  
+  // Get the most recent reading (latest entry)
+  var latestReading = data[data.length - 1];
+  var latestPressure = latestReading[1];
+  var latestTimestamp = new Date(latestReading[0]);
+  
+  // Check the reading from 3 hours ago (3 rows back)
+  var oldReading = data[data.length - 4]; // 3 hours ago (if we are saving data every hour)
+  var oldPressure = oldReading[1];
+  var oldTimestamp = new Date(oldReading[0]);
+  
+  // Calculate the pressure drop
+  var pressureDrop = oldPressure - latestPressure;
+  
+  // If the pressure dropped by more than 2.5 hPa, send an alert
+  if (pressureDrop >= 2.5) {
+    sendEmailAlert(pressureDrop, oldPressure, latestPressure, oldTimestamp, latestTimestamp);
   }
 }
+
+// Function to send an email alert
+function sendEmailAlert(pressureDrop, oldPressure, latestPressure, oldTimestamp, latestTimestamp) {
+  var subject = "Pressure Alert: Significant Drop Detected";
+  var body = "The atmospheric pressure has dropped significantly over the last 3 hours.\n\n" +
+             "Pressure drop: " + pressureDrop + " hPa\n" +
+             "Old Pressure: " + oldPressure + " hPa (at " + oldTimestamp + ")\n" +
+             "Latest Pressure: " + latestPressure + " hPa (at " + latestTimestamp + ")\n\n" +
+             "Please check the data for more details.";
+
+  var recipients = "mail1@example.com, mail2@example.com"; // List multiple emails separated by commas
+  MailApp.sendEmail(recipients, subject, body);
+}
+
 Save the script (e.g. name it ESP Logger)
 
 🚀 3. Deploy as Web App
