@@ -1,0 +1,53 @@
+🔧 1. Create the Google Spreadsheet
+
+Open Google Sheets
+
+Rename the sheet to something like ESP Data
+
+Rename the default tab (bottom left) to ESP Data (case-sensitive!)
+
+📜 2. Create a Google Apps Script
+In the sheet, click Extensions > Apps Script
+
+Delete any existing code and paste this:
+
+javascript
+Copy
+Edit
+function doPost(e) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ESP Data");
+    var data = JSON.parse(e.postData.contents);
+    
+    // Log incoming data (optional)
+    Logger.log("Received: " + JSON.stringify(data));
+
+    sheet.appendRow([new Date(), data.pressure, data.temperature, data.humidity]);
+    return ContentService.createTextOutput("Success");
+  } catch (err) {
+    Logger.log("Error: " + err);
+    return ContentService.createTextOutput("Error");
+  }
+}
+Save the script (e.g. name it ESP Logger)
+
+🚀 3. Deploy as Web App
+Click Deploy > Manage deployments
+
+Click + New deployment
+
+Click Select type > Web app
+
+Set:
+
+Description: ESP Data Receiver
+
+Execute as: Me
+
+Who has access: Anyone
+
+Click Deploy
+
+You’ll be asked to Authorize — accept all prompts
+
+Copy the Web App URL (it ends in /exec)
