@@ -119,7 +119,7 @@ void setup() {
 
     tft.print("TempDHT: ");
     tft.print(lastTempDHT, 1);
-    tft.println(" °C");
+    tft.println(" C");
 
     tft.print("TempBMP: ");
     tft.print(lastTempBMP, 1);
