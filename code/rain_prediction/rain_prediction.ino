@@ -97,7 +97,7 @@ void setup() {
     // Prepare for next wake
     pinMode(WAKE_BUTTON_PIN, INPUT_PULLDOWN);
     esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 1);   // wake when HIGH
-    esp_sleep_enable_timer_wakeup(60 * 1000000);                    // 60 seconds
+    esp_sleep_enable_timer_wakeup(10 * 60 * 1000000ULL);                    // 10 minutes
     esp_deep_sleep_start();
   }
 
@@ -138,7 +138,7 @@ void setup() {
   // Prepare for next wake
   pinMode(WAKE_BUTTON_PIN, INPUT_PULLDOWN);
   esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 1);   // wake when HIGH
-  esp_sleep_enable_timer_wakeup(10 * 60 * 1000000);                    // 10 minutes (in microseconds)
+  esp_sleep_enable_timer_wakeup(10 * 60 * 1000000ULL);                    // 10 minutes (in microseconds)
   esp_deep_sleep_start();
 }
 
