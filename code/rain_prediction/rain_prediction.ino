@@ -1,7 +1,4 @@
 #include <Adafruit_BMP280.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>
-#include <SPI.h>
 #include <Wire.h>
 #include <esp_sleep.h>
 #include <DHT11.h>
@@ -14,22 +11,13 @@ const char* password = "69786762248281985263";
 
 // Google Apps Script URL (replace with your generated URL)
 const char* serverName = "https://script.google.com/macros/s/AKfycbybCCg4eVdEeiegs4Sg1la2WAdmTb50N8G0uoCnZTd-uJ8NXg2N6w_aiB9-uGrwCIqX/exec";
-// --- TFT & Sensor Pins ---
-#define TFT_CS     5
-#define TFT_DC     17
-#define TFT_RST    16
 
-// --- Wake Button Pin (must be RTC-capable) ---
-#define WAKE_BUTTON_PIN 14
-#define SCREEN_POWER_PIN 4
 
 // --- Pressure History Settings ---
 #define MAX_READINGS 60
-#define DROP_THRESHOLD 2.5  // hPa drop for "Rain is Coming"
 
 // --- Components ---
 Adafruit_BMP280 bmp;
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 DHT11 dht11(15);
 // --- RTC-Persistent Data ---
 
@@ -43,10 +31,6 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
-  // Detect wake reason
-  esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
-  bool screenRequested = (wakeReason == ESP_SLEEP_WAKEUP_EXT0);
-
   // Init BMP280
   if (!bmp.begin(0x76)) {
     Serial.println("BMP280 not found!");
@@ -54,17 +38,11 @@ void setup() {
     return;
   }
 
-  pinMode(SCREEN_POWER_PIN, OUTPUT);
-  
-  
+  WiFi.begin(ssid, password);
 
-  // If it's a timer wakeup, gather measurements
-  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
-      WiFi.begin(ssid, password);
-
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(1000);
-      Serial.println("Connecting to WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(100);
+    Serial.println("Connecting to WiFi...");
     }
     Serial.println("Connected to WiFi");
 
@@ -95,51 +73,11 @@ void setup() {
 
     sendDataToGoogleSheets(lastPressure,lastTemperature, lastHumidity);
     // Prepare for next wake
-    pinMode(WAKE_BUTTON_PIN, INPUT_PULLDOWN);
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 1);   // wake when HIGH
+
     esp_sleep_enable_timer_wakeup(10 * 60 * 1000000ULL);                    // 10 minutes
     esp_deep_sleep_start();
   }
 
-  // If button wakeup, show on screen
-  if (screenRequested) {
-    initScreen();
-    tft.setCursor(0, 0);
-    tft.setTextColor(ST77XX_WHITE);
-    tft.setTextSize(1);
-
-    // Display the last measured values
-
-    tft.print("Pressure: ");
-    tft.print(lastPressure, 1);
-    tft.println(" hPa");
-
-    tft.print("Temp: ");
-    tft.print(lastTemperature, 1);
-    tft.println(" C");
-
-    tft.print("Humidity: ");
-    tft.print(lastHumidity, 1);
-    tft.println(" %");
-
-    tft.print("TempDHT: ");
-    tft.print(lastTempDHT, 1);
-    tft.println(" C");
-
-    tft.print("TempBMP: ");
-    tft.print(lastTempBMP, 1);
-    tft.println(" C");
-
-
-
-    delay(5000);  // Display duration before sleeping
-  }
-
-  // Prepare for next wake
-  pinMode(WAKE_BUTTON_PIN, INPUT_PULLDOWN);
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 1);   // wake when HIGH
-  esp_sleep_enable_timer_wakeup(10 * 60 * 1000000ULL);                    // 10 minutes (in microseconds)
-  esp_deep_sleep_start();
 }
 
 // Required by Arduino
@@ -181,15 +119,4 @@ void sendDataToGoogleSheets(float pressure, float temp, float hum) {
 }
 
 
-// TFT screen init
-void initScreen() {
-  tft.initR(INITR_BLACKTAB);
-  tft.setRotation(2);
-  tft.fillScreen(ST77XX_BLACK);
-  // Power on screen only if ESP woke from button
-  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
-    digitalWrite(SCREEN_POWER_PIN, HIGH); // Power on TFT
-  } else {
-    digitalWrite(SCREEN_POWER_PIN, LOW);  // Optional: don't power screen on reset
-  }
-}
+
